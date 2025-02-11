@@ -1,0 +1,48 @@
+name: Sync Fork (with basic conflict resolution)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs every day at midnight
+  workflow_dispatch:      # Allows manual runs
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Detect if this repository is a fork
+        id: detect_fork
+        run: |
+          if [ "${{ github.event.repository.fork }}" = "true" ]; then
+            echo "IS_FORK=true" >> $GITHUB_OUTPUT
+            echo "UPSTREAM_CLONE_URL=${{ github.event.repository.parent.clone_url }}" >> $GITHUB_OUTPUT
+            echo "UPSTREAM_MAIN_BRANCH=${{ github.event.repository.parent.default_branch }}" >> $GITHUB_OUTPUT
+          else
+            echo "IS_FORK=false" >> $GITHUB_OUTPUT
+
+      - name: Configure Git and merge upstream (resolve conflicts by preferring upstream changes)
+        if: ${{ steps.detect_fork.outputs.IS_FORK == 'true' }}
+        run: |
+          # Configure Git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add and fetch upstream
+          git remote add upstream "${{ steps.detect_fork.outputs.UPSTREAM_CLONE_URL }}"
+          git fetch upstream
+
+          # Merge upstream changes and prefer upstream content if conflicts arise
+          git merge "upstream/${{ steps.detect_fork.outputs.UPSTREAM_MAIN_BRANCH }}" \
+            --strategy-option theirs \
+            --allow-unrelated-histories
+
+          # (Optional) Run any build or lint checks before pushing, e.g.:
+          # npm install
+          # npm run build
+
+          git push origin HEAD:main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
